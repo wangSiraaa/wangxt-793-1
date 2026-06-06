@@ -42,15 +42,15 @@ router.post('/scan', authMiddleware, requireRole('security', 'organizer'), async
     } else if (personnel.photo_status !== 'approved') {
       verifyResult = 'failed';
       failReason = '照片未通过审核';
-    } else if (!['printed', 'issued'].includes(personnel.credential_status)) {
-      verifyResult = 'failed';
-      failReason = '证件未制证';
     } else if (personnel.credential_status === 'lost') {
       verifyResult = 'failed';
       failReason = '证件已挂失';
     } else if (personnel.credential_status === 'cancelled') {
       verifyResult = 'failed';
       failReason = '证件已注销';
+    } else if (!['printed', 'issued'].includes(personnel.credential_status)) {
+      verifyResult = 'failed';
+      failReason = '证件未制证';
     }
     
     await run(`
