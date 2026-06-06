@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend/src/uploads:/app/backend/src/uploads
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+    restart: unless-stopped
