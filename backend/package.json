@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node tests/acceptance.js"
+    "test": "node tests/acceptance.js",
+    "smoke-793": "node tests/smoke-793.js"
   },
   "dependencies": {
     "express": "^4.18.2",

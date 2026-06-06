@@ -133,6 +133,9 @@ const initTables = async () => {
       audit_status TEXT DEFAULT 'pending' CHECK(audit_status IN ('pending', 'approved', 'rejected')),
       audit_reject_reason TEXT,
       credential_status TEXT DEFAULT 'draft' CHECK(credential_status IN ('draft', 'printed', 'issued', 'lost', 'cancelled')),
+      withdraw_status TEXT DEFAULT 'none' CHECK(withdraw_status IN ('none', 'withdrawn', 'resubmitted')),
+      withdraw_reason TEXT,
+      withdraw_count INTEGER DEFAULT 0,
       batch_id INTEGER,
       is_locked INTEGER DEFAULT 0,
       import_conflict INTEGER DEFAULT 0,
@@ -142,6 +145,24 @@ const initTables = async () => {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (exhibitor_id) REFERENCES exhibitors(id),
       FOREIGN KEY (batch_id) REFERENCES print_batches(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS withdraw_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personnel_id INTEGER NOT NULL,
+      action_type TEXT NOT NULL CHECK(action_type IN ('withdraw', 'resubmit', 'photo_reject')),
+      reason TEXT,
+      operator_id INTEGER,
+      operator_name TEXT,
+      previous_photo_status TEXT,
+      previous_audit_status TEXT,
+      previous_credential_status TEXT,
+      new_photo_status TEXT,
+      new_audit_status TEXT,
+      new_credential_status TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (personnel_id) REFERENCES personnel(id),
+      FOREIGN KEY (operator_id) REFERENCES users(id)
     );
 
     CREATE TABLE IF NOT EXISTS print_batches (
@@ -189,6 +210,9 @@ const initTables = async () => {
     CREATE INDEX IF NOT EXISTS idx_personnel_id_card ON personnel(id_card);
     CREATE INDEX IF NOT EXISTS idx_personnel_exhibitor ON personnel(exhibitor_id);
     CREATE INDEX IF NOT EXISTS idx_personnel_audit ON personnel(audit_status);
+    CREATE INDEX IF NOT EXISTS idx_personnel_withdraw ON personnel(withdraw_status);
+    CREATE INDEX IF NOT EXISTS idx_withdraw_records_personnel ON withdraw_records(personnel_id);
+    CREATE INDEX IF NOT EXISTS idx_withdraw_records_time ON withdraw_records(created_at);
     CREATE INDEX IF NOT EXISTS idx_verify_logs_personnel ON verify_logs(personnel_id);
     CREATE INDEX IF NOT EXISTS idx_verify_logs_time ON verify_logs(verify_time);
   `);

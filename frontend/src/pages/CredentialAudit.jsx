@@ -99,7 +99,7 @@ const CredentialAudit = () => {
       render: (_, record) => (
         <Space>
           <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record)}>查看</Button>
-          <Button type="link" size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAudit(record)}>审核</Button>
+          <Button type="primary" size="small" icon={<CheckOutlined />} onClick={() => handleAudit(record)}>审核</Button>
         </Space>
       )
     }

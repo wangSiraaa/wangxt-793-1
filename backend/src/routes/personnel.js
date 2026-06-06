@@ -416,4 +416,169 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   }
 });
 
+router.post('/:id/withdraw', authMiddleware, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    
+    const personnel = await get('SELECT * FROM personnel WHERE id = ?', req.params.id);
+    if (!personnel) {
+      return res.status(404).json({ error: '人员不存在' });
+    }
+    
+    if (personnel.is_locked === 1) {
+      return res.status(400).json({ error: '已制证的人员不能撤回重办' });
+    }
+    
+    if (!['approved', 'rejected'].includes(personnel.audit_status) && !['rejected'].includes(personnel.photo_status)) {
+      if (personnel.audit_status === 'pending' && personnel.photo_status === 'pending') {
+        return res.status(400).json({ error: '待审核状态的资料无需撤回' });
+      }
+    }
+    
+    await run(`
+      INSERT INTO withdraw_records (
+        personnel_id, action_type, reason, operator_id, operator_name,
+        previous_photo_status, previous_audit_status, previous_credential_status,
+        new_photo_status, new_audit_status, new_credential_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, 
+      req.params.id, 'withdraw', reason, req.user.id, req.user.real_name,
+      personnel.photo_status, personnel.audit_status, personnel.credential_status,
+      'pending', 'pending', 'draft'
+    );
+    
+    await run(`
+      UPDATE personnel 
+      SET withdraw_status = 'withdrawn',
+          withdraw_reason = ?,
+          withdraw_count = withdraw_count + 1,
+          photo_status = 'pending',
+          photo_reject_reason = NULL,
+          audit_status = 'pending',
+          audit_reject_reason = NULL,
+          credential_status = 'draft',
+          is_locked = 0,
+          batch_id = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, reason, req.params.id);
+    
+    const updated = await get('SELECT * FROM personnel WHERE id = ?', req.params.id);
+    res.json({ message: '撤回成功，资料已重置为待审核状态', data: updated });
+  } catch (err) {
+    console.error('撤回失败:', err);
+    res.status(500).json({ error: '撤回失败: ' + err.message });
+  }
+});
+
+router.post('/:id/resubmit', authMiddleware, async (req, res) => {
+  try {
+    const personnel = await get('SELECT * FROM personnel WHERE id = ?', req.params.id);
+    if (!personnel) {
+      return res.status(404).json({ error: '人员不存在' });
+    }
+    
+    if (personnel.withdraw_status !== 'withdrawn') {
+      return res.status(400).json({ error: '只有已撤回状态的资料才能重新提交' });
+    }
+    
+    if (!personnel.photo_path) {
+      return res.status(400).json({ error: '请先上传照片后再提交' });
+    }
+    
+    await run(`
+      INSERT INTO withdraw_records (
+        personnel_id, action_type, reason, operator_id, operator_name,
+        previous_photo_status, previous_audit_status, previous_credential_status,
+        new_photo_status, new_audit_status, new_credential_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, 
+      req.params.id, 'resubmit', '展商重新提交资料', req.user.id, req.user.real_name,
+      personnel.photo_status, personnel.audit_status, personnel.credential_status,
+      'pending', 'pending', 'draft'
+    );
+    
+    await run(`
+      UPDATE personnel 
+      SET withdraw_status = 'resubmitted',
+          withdraw_reason = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, req.params.id);
+    
+    const updated = await get('SELECT * FROM personnel WHERE id = ?', req.params.id);
+    res.json({ message: '资料已重新提交，等待审核', data: updated });
+  } catch (err) {
+    console.error('重新提交失败:', err);
+    res.status(500).json({ error: '重新提交失败: ' + err.message });
+  }
+});
+
+router.post('/:id/photo-reject', authMiddleware, requireRole('organizer'), async (req, res) => {
+  try {
+    const { rejectReason } = req.body;
+    
+    if (!rejectReason) {
+      return res.status(400).json({ error: '请填写退回原因' });
+    }
+    
+    const personnel = await get('SELECT * FROM personnel WHERE id = ?', req.params.id);
+    if (!personnel) {
+      return res.status(404).json({ error: '人员不存在' });
+    }
+    
+    if (personnel.photo_status === 'rejected') {
+      return res.status(400).json({ error: '该照片已处于退回状态' });
+    }
+    
+    await run(`
+      INSERT INTO withdraw_records (
+        personnel_id, action_type, reason, operator_id, operator_name,
+        previous_photo_status, previous_audit_status, previous_credential_status,
+        new_photo_status, new_audit_status, new_credential_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, 
+      req.params.id, 'photo_reject', rejectReason, req.user.id, req.user.real_name,
+      personnel.photo_status, personnel.audit_status, personnel.credential_status,
+      'rejected', personnel.audit_status, personnel.credential_status
+    );
+    
+    await run(`
+      UPDATE personnel 
+      SET photo_status = 'rejected',
+          photo_reject_reason = ?,
+          audit_status = 'rejected',
+          audit_reject_reason = ?,
+          withdraw_status = 'withdrawn',
+          withdraw_reason = ?,
+          credential_status = 'draft',
+          is_locked = 0,
+          batch_id = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, rejectReason, `照片审核不通过: ${rejectReason}`, rejectReason, req.params.id);
+    
+    const updated = await get('SELECT * FROM personnel WHERE id = ?', req.params.id);
+    res.json({ message: '照片已退回，展商可重新上传', data: updated });
+  } catch (err) {
+    console.error('照片退回失败:', err);
+    res.status(500).json({ error: '照片退回失败: ' + err.message });
+  }
+});
+
+router.get('/:id/withdraw-records', authMiddleware, async (req, res) => {
+  try {
+    const records = await all(`
+      SELECT * FROM withdraw_records 
+      WHERE personnel_id = ? 
+      ORDER BY created_at DESC
+    `, req.params.id);
+    
+    res.json({ list: records });
+  } catch (err) {
+    console.error('查询撤回记录失败:', err);
+    res.status(500).json({ error: '查询失败: ' + err.message });
+  }
+});
+
 module.exports = router;

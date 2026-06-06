@@ -14,7 +14,8 @@ import {
   Descriptions,
   Image,
   InputNumber,
-  Popconfirm
+  Popconfirm,
+  Card
 } from 'antd';
 import {
   PlusOutlined,
@@ -41,9 +42,11 @@ const PersonnelList = () => {
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
+  const [withdrawModalVisible, setWithdrawModalVisible] = useState(false);
   const [currentPersonnel, setCurrentPersonnel] = useState(null);
   const [importResult, setImportResult] = useState(null);
   const [editingId, setEditingId] = useState(null);
+  const [withdrawForm] = Form.useForm();
   const [form] = Form.useForm();
   const navigate = useNavigate();
 
@@ -165,6 +168,43 @@ const PersonnelList = () => {
     }
   };
 
+  const handleWithdraw = (record) => {
+    setCurrentPersonnel(record);
+    withdrawForm.resetFields();
+    setWithdrawModalVisible(true);
+  };
+
+  const handleWithdrawSubmit = async (values) => {
+    try {
+      await personnelApi.withdraw(currentPersonnel.id, values);
+      message.success('撤回成功，资料已重置为待审核状态');
+      setWithdrawModalVisible(false);
+      loadList();
+    } catch (err) {
+      message.error(err.error || '撤回失败');
+    }
+  };
+
+  const handleResubmit = async (record) => {
+    try {
+      await personnelApi.resubmit(record.id);
+      message.success('资料已重新提交，等待审核');
+      loadList();
+    } catch (err) {
+      message.error(err.error || '提交失败');
+    }
+  };
+
+  const getWithdrawStatusTag = (status) => {
+    const statusMap = {
+      none: { color: 'default', text: '正常' },
+      withdrawn: { color: 'orange', text: '已撤回' },
+      resubmitted: { color: 'blue', text: '已重提' }
+    };
+    const s = statusMap[status] || { color: 'default', text: status };
+    return <Tag color={s.color}>{s.text}</Tag>;
+  };
+
   const getStatusTag = (status) => {
     const statusMap = {
       pending: { color: 'orange', text: '待审核' },
@@ -205,6 +245,14 @@ const PersonnelList = () => {
     { title: '照片状态', dataIndex: 'photo_status', key: 'photo_status', width: 100, render: getStatusTag },
     { title: '审核状态', dataIndex: 'audit_status', key: 'audit_status', width: 100, render: getStatusTag },
     { title: '证件状态', dataIndex: 'credential_status', key: 'credential_status', width: 100, render: getCredentialTag },
+    { title: '撤回状态', dataIndex: 'withdraw_status', key: 'withdraw_status', width: 100, render: getWithdrawStatusTag },
+    { 
+      title: '撤回次数', 
+      dataIndex: 'withdraw_count', 
+      key: 'withdraw_count', 
+      width: 80,
+      render: (count) => count > 0 ? <Tag color="orange">{count}次</Tag> : null
+    },
     { 
       title: '导入冲突', 
       dataIndex: 'import_conflict', 
@@ -215,18 +263,29 @@ const PersonnelList = () => {
     {
       title: '操作',
       key: 'action',
-      width: 200,
+      width: 320,
       fixed: 'right',
       render: (_, record) => (
-        <Space>
+        <Space wrap>
           <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record)}>详情</Button>
-          {record.is_locked !== 1 && (
+          {(record.is_locked !== 1 || record.withdraw_status === 'withdrawn') && (
             <>
               <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>编辑</Button>
-              <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
-                <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
-              </Popconfirm>
             </>
+          )}
+          {record.is_locked !== 1 && record.withdraw_status !== 'withdrawn' && (
+            <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
+              <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
+            </Popconfirm>
+          )}
+          {record.withdraw_status === 'withdrawn' && (
+            <Popconfirm title="确定重新提交该资料？" onConfirm={() => handleResubmit(record)}>
+              <Button type="link" size="small" type="primary">重新提交</Button>
+            </Popconfirm>
+          )}
+          {record.is_locked !== 1 && record.withdraw_status !== 'withdrawn' && 
+           (record.audit_status !== 'pending' || record.photo_status !== 'pending') && (
+            <Button type="link" size="small" onClick={() => handleWithdraw(record)}>撤回重办</Button>
           )}
           {['printed', 'issued'].includes(record.credential_status) && (
             <Popconfirm title="确定挂失该证件？" onConfirm={() => handleLost(record)}>
@@ -366,6 +425,33 @@ const PersonnelList = () => {
         )}
       </Modal>
 
+      <Modal
+        title="撤回重办"
+        open={withdrawModalVisible}
+        onCancel={() => setWithdrawModalVisible(false)}
+        footer={null}
+      >
+        <p style={{ marginBottom: 16 }}>
+          撤回后资料将重置为待审核状态，可重新编辑后再次提交。
+        </p>
+        {currentPersonnel && (
+          <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
+            <p><strong>姓名：</strong>{currentPersonnel.name}</p>
+            <p><strong>身份证号：</strong>{currentPersonnel.id_card}</p>
+            <p><strong>当前照片状态：</strong>{getStatusTag(currentPersonnel.photo_status)}</p>
+            <p><strong>当前审核状态：</strong>{getStatusTag(currentPersonnel.audit_status)}</p>
+          </div>
+        )}
+        <Form form={withdrawForm} layout="vertical" onFinish={handleWithdrawSubmit}>
+          <Form.Item name="reason" label="撤回原因" rules={[{ required: true, message: '请填写撤回原因' }]}>
+            <Input.TextArea rows={3} placeholder="请填写撤回原因，如：资料有误需修改、照片需重新上传等" />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" block>确认撤回</Button>
+          </Form.Item>
+        </Form>
+      </Modal>
+
       <Drawer
         title="人员详情"
         width={600}
@@ -399,6 +485,13 @@ const PersonnelList = () => {
               <Descriptions.Item label="照片状态">{getStatusTag(currentPersonnel.photo_status)}</Descriptions.Item>
               <Descriptions.Item label="审核状态">{getStatusTag(currentPersonnel.audit_status)}</Descriptions.Item>
               <Descriptions.Item label="证件状态">{getCredentialTag(currentPersonnel.credential_status)}</Descriptions.Item>
+              <Descriptions.Item label="撤回状态">{getWithdrawStatusTag(currentPersonnel.withdraw_status)}</Descriptions.Item>
+              {currentPersonnel.withdraw_count > 0 && (
+                <Descriptions.Item label="撤回次数">{currentPersonnel.withdraw_count} 次</Descriptions.Item>
+              )}
+              {currentPersonnel.withdraw_reason && (
+                <Descriptions.Item label="撤回原因">{currentPersonnel.withdraw_reason}</Descriptions.Item>
+              )}
               {currentPersonnel.photo_reject_reason && (
                 <Descriptions.Item label="照片驳回原因">{currentPersonnel.photo_reject_reason}</Descriptions.Item>
               )}

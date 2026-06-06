@@ -55,7 +55,11 @@ export const personnelApi = {
   photoAudit: (id, data) => api.post(`/personnel/${id}/photo-audit`, data),
   audit: (id, data) => api.post(`/personnel/${id}/audit`, data),
   lost: (id) => api.post(`/personnel/${id}/lost`),
-  issue: (id, data) => api.post(`/personnel/${id}/issue`, data)
+  issue: (id, data) => api.post(`/personnel/${id}/issue`, data),
+  withdraw: (id, data) => api.post(`/personnel/${id}/withdraw`, data),
+  resubmit: (id) => api.post(`/personnel/${id}/resubmit`),
+  photoReject: (id, data) => api.post(`/personnel/${id}/photo-reject`, data),
+  withdrawRecords: (id) => api.get(`/personnel/${id}/withdraw-records`)
 };
 
 export const batchApi = {
